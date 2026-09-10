@@ -1,0 +1,8 @@
+name: zmk-feature-runtime-tap-dance
+build:
+  depends:
+    - zmk-feature-custom-settings
+  cmake: .
+  kconfig: Kconfig
+  settings:
+    dts_root: .

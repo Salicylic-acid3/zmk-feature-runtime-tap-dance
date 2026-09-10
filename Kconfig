@@ -1,0 +1,57 @@
+config ZMK_RUNTIME_TAP_DANCE
+    bool "Enable runtime-editable tap dance"
+    select ZMK_CUSTOM_SETTINGS
+    select ZMK_CUSTOM_SETTINGS_ARRAY
+    select ZMK_BEHAVIOR_LOCAL_IDS
+    help
+      Tap-dance slots whose bindings live in custom settings instead of the
+      devicetree, so what one tap, two taps or three taps do can be changed
+      from Keeb-On! Studio without rebuilding the firmware.
+
+      ZMK's own zmk,behavior-tap-dance is the better choice when the taps
+      never need to change: it costs no settings storage. This is for the
+      keyboards where they do -- a 30% has to earn every key back.
+
+if ZMK_RUNTIME_TAP_DANCE
+
+config ZMK_RUNTIME_TAP_DANCE_COUNT
+    int "Number of tap-dance slots"
+    default 4
+    range 1 16
+    help
+      How many independently configurable tap dances exist. A keymap binds
+      one by index: `&rtd 0`, `&rtd 1`, and so on. Every slot costs its
+      settings entries whether or not it is used, so this is a budget rather
+      than a limit to max out.
+
+config ZMK_RUNTIME_TAP_DANCE_MAX_TAPS
+    int "Maximum taps per slot"
+    default 3
+    range 2 5
+    help
+      The longest tap sequence a slot can hold. Three covers tap / double /
+      triple, which is what a 30% layout normally wants; going higher costs
+      one stored binding per slot per extra tap and makes the last tap
+      slower to reach.
+
+config ZMK_RUNTIME_TAP_DANCE_MAX_HELD
+    int "Maximum tap dances in flight at once"
+    default 4
+    range 1 10
+    help
+      How many tap dances can be mid-sequence simultaneously. This is about
+      fast typing across several tap-dance keys, not about the slot count.
+
+config ZMK_RUNTIME_TAP_DANCE_DEFAULT_TERM_MS
+    int "Default tapping term (ms)"
+    default 200
+    range 50 1000
+    help
+      How long a slot waits for the next tap before deciding, until someone
+      changes it for that slot from the app.
+
+module = ZMK_RUNTIME_TAP_DANCE
+module-str = zmk_runtime_tap_dance
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # ZMK_RUNTIME_TAP_DANCE

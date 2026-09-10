@@ -1,0 +1,15 @@
+/*
+ * Copyright (c) 2026 Salicylic_acid3
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+/ {
+    behaviors {
+        rtd: runtime_tap_dance {
+            compatible = "keebon,zmk-behavior-runtime-tap-dance";
+            #binding-cells = <1>;
+            display-name = "Tap Dance";
+        };
+    };
+};

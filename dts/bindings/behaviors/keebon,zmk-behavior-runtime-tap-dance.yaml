@@ -1,0 +1,13 @@
+# Copyright (c) 2026 Salicylic_acid3
+# SPDX-License-Identifier: MIT
+
+description: |
+  A tap dance whose bindings are stored in custom settings rather than here.
+
+  The single binding parameter is the slot index (0 ..
+  CONFIG_ZMK_RUNTIME_TAP_DANCE_COUNT-1). What each tap does, and how long the
+  slot waits between taps, are settings -- edit them from Keeb-On! Studio.
+
+compatible: "keebon,zmk-behavior-runtime-tap-dance"
+
+include: one_param.yaml
