@@ -14,6 +14,18 @@ config ZMK_RUNTIME_TAP_DANCE
 
 if ZMK_RUNTIME_TAP_DANCE
 
+config ZMK_RUNTIME_TAP_DANCE_STUDIO_RPC
+    bool "Expose tap dance settings to Studio"
+    default y
+    depends on ZMK_STUDIO
+    select ZMK_CUSTOM_SETTINGS_STUDIO_RPC
+    help
+      Registers this module as a Studio custom subsystem. There is no RPC of
+      its own -- the taps are ordinary custom settings -- but a setting whose
+      subsystem id matches no registered subsystem is dropped from
+      ListSettings, so without this the slots exist on the keyboard and the
+      app cannot see them.
+
 config ZMK_RUNTIME_TAP_DANCE_COUNT
     int "Number of tap-dance slots"
     default 4

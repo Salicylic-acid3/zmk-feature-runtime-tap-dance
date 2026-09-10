@@ -64,6 +64,27 @@ static const struct zmk_custom_setting_value tap_dance_taps_defaults[TAP_COUNT] 
 
 LISTIFY(SLOT_COUNT, TAP_DANCE_SLOT_DEFINE, (), _)
 
+/*
+ * The capacity, published as a setting because nothing else carries it.
+ *
+ * An array setting's RPC value reports the array's *current* length, not how
+ * long it may become, and the protocol has no field for the maximum. Without
+ * this the app cannot tell a slot with room left from a full one, so it would
+ * have to offer "add a tap" until the firmware refused -- an error where a
+ * disabled button belongs.
+ *
+ * It is writable only in the sense that every setting is: the range pins it to
+ * the one value that is true, so a write of anything else is rejected. The
+ * number is decided at build time by Kconfig and cannot be otherwise.
+ */
+ZMK_CUSTOM_SETTING_DEFINE(tap_dance_max_taps, ZMK_RUNTIME_TAP_DANCE_SUBSYSTEM_ID, "max_taps",
+                          ZMK_CUSTOM_SETTING_VALUE_TYPE_INT32,
+                          ZMK_CUSTOM_SETTING_VALUE_INT32(TAP_COUNT),
+                          ZMK_CUSTOM_SETTING_CONFIDENTIALITY_RPC_PUBLIC,
+                          ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE,
+                          ZMK_CUSTOM_SETTING_PERMISSION_SECURE,
+                          ZMK_CUSTOM_SETTING_RANGE_INT32(TAP_COUNT, TAP_COUNT));
+
 /* Rebuild a slot's setting key. Mirrors the literals in the macro above. */
 static int key_for(uint32_t slot, const char *suffix, char *out, size_t out_size) {
     int written = snprintf(out, out_size, "tap_dance%u/%s", slot, suffix);
