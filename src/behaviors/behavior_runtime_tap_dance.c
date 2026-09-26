@@ -28,6 +28,18 @@
  *    devicetree list, and there is nowhere to put it that the app can edit
  *    yet. Its absence means an interrupting key always decides the dance,
  *    which is upstream's behaviour with an empty ignore list.
+ *
+ * One addition upstream does not have: a hold action per tap count. When the
+ * dance is decided while the key is still down -- the wait ran out or another
+ * key was pressed -- and the slot has a hold binding for that count, that is
+ * what gets pressed and later released, instead of the tap binding. So one
+ * key can be "tap: Escape, hold: Control, double-tap-hold: a layer". A slot
+ * without hold actions behaves exactly as upstream: the tap binding is held.
+ *
+ * That changes one thing about the last tap. Upstream fires the last tap
+ * the instant it is pressed, since nothing longer can follow; with a hold
+ * action configured for it, the press has to wait out the term to learn
+ * whether it is a tap or a hold, the same as every earlier count.
  */
 
 #define DT_DRV_COMPAT keebon_zmk_behavior_runtime_tap_dance
@@ -61,6 +73,8 @@ struct active_tap_dance {
     uint8_t source;
 #endif
     bool is_pressed;
+    /* Which binding was pressed, so the release matches it. */
+    bool hold_used;
 
     bool timer_started;
     bool timer_cancelled;
@@ -93,6 +107,7 @@ static int new_tap_dance(struct zmk_behavior_binding_event *event, uint32_t slot
 #endif
             ref_dance->release_at = 0;
             ref_dance->is_pressed = true;
+            ref_dance->hold_used = false;
             ref_dance->timer_started = true;
             ref_dance->timer_cancelled = false;
             ref_dance->tap_dance_decided = false;
@@ -125,17 +140,29 @@ static void reset_timer(struct active_tap_dance *tap_dance,
     }
 }
 
-/* Build the event and binding for whichever tap the dance settled on.
- * Returns false when the slot has nothing stored for that tap, which is not
- * an error -- an unconfigured slot simply does nothing. */
-static bool binding_for(struct active_tap_dance *tap_dance, int64_t timestamp,
+/* True when the slot has a hold action for the count the dance is at. */
+static bool has_hold_binding(const struct active_tap_dance *tap_dance) {
+    struct zmk_behavior_binding binding;
+    return tap_dance->counter >= 1 &&
+           zmk_runtime_tap_dance_hold_binding(tap_dance->slot, tap_dance->counter - 1,
+                                              &binding) == 0;
+}
+
+/* Build the event and binding for whichever tap the dance settled on: the
+ * hold action when `hold` and the slot has one for this count, otherwise the
+ * tap binding. Returns false when the slot has nothing stored for that tap,
+ * which is not an error -- an unconfigured slot simply does nothing. */
+static bool binding_for(struct active_tap_dance *tap_dance, int64_t timestamp, bool hold,
                         struct zmk_behavior_binding *binding,
                         struct zmk_behavior_binding_event *event) {
     if (tap_dance->counter < 1) {
         return false;
     }
-    if (zmk_runtime_tap_dance_binding(tap_dance->slot, tap_dance->counter - 1, binding) < 0) {
-        return false;
+    const uint32_t index = tap_dance->counter - 1;
+    if (!hold || zmk_runtime_tap_dance_hold_binding(tap_dance->slot, index, binding) < 0) {
+        if (zmk_runtime_tap_dance_binding(tap_dance->slot, index, binding) < 0) {
+            return false;
+        }
     }
     *event = (struct zmk_behavior_binding_event){
         .position = tap_dance->position,
@@ -149,10 +176,13 @@ static bool binding_for(struct active_tap_dance *tap_dance, int64_t timestamp,
 
 static int press_tap_dance_behavior(struct active_tap_dance *tap_dance, int64_t timestamp) {
     tap_dance->tap_dance_decided = true;
+    /* Decided with the key still down: this is a hold, if the slot has a
+     * hold action for this count. Decided after release: a tap. */
+    tap_dance->hold_used = tap_dance->is_pressed && has_hold_binding(tap_dance);
 
     struct zmk_behavior_binding binding;
     struct zmk_behavior_binding_event event;
-    if (!binding_for(tap_dance, timestamp, &binding, &event)) {
+    if (!binding_for(tap_dance, timestamp, tap_dance->hold_used, &binding, &event)) {
         LOG_DBG("tap dance slot %u has nothing for tap %d", tap_dance->slot, tap_dance->counter);
         return 0;
     }
@@ -162,7 +192,7 @@ static int press_tap_dance_behavior(struct active_tap_dance *tap_dance, int64_t 
 static int release_tap_dance_behavior(struct active_tap_dance *tap_dance, int64_t timestamp) {
     struct zmk_behavior_binding binding;
     struct zmk_behavior_binding_event event;
-    bool have_binding = binding_for(tap_dance, timestamp, &binding, &event);
+    bool have_binding = binding_for(tap_dance, timestamp, tap_dance->hold_used, &binding, &event);
 
     /* Cleared before invoking, exactly as upstream does: the slot has to be
      * free again before anything the binding triggers can look for it. */
@@ -173,6 +203,37 @@ static int release_tap_dance_behavior(struct active_tap_dance *tap_dance, int64_
     }
     return zmk_behavior_invoke_binding(&binding, event, false);
 }
+
+#if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_METADATA)
+/* The parameter is a slot index. Published as a range so the app offers a
+ * picker over the configured slots instead of leaving the parameter at 0 --
+ * which is what an empty metadata set did: only `&rtd 0` was ever reachable
+ * from the keymap editor. */
+static const struct behavior_parameter_value_metadata slot_param_values[] = {
+    {
+        .display_name = "Tap dance",
+        .type = BEHAVIOR_PARAMETER_VALUE_TYPE_RANGE,
+        .range = {.min = 0, .max = CONFIG_ZMK_RUNTIME_TAP_DANCE_COUNT - 1},
+    },
+};
+
+static const struct behavior_parameter_metadata_set slot_metadata_set = {
+    .param1_values = slot_param_values,
+    .param1_values_len = ARRAY_SIZE(slot_param_values),
+};
+
+static const struct behavior_parameter_metadata slot_metadata = {
+    .sets_len = 1,
+    .sets = &slot_metadata_set,
+};
+
+static int runtime_tap_dance_parameter_metadata(const struct device *dev,
+                                                struct behavior_parameter_metadata *metadata) {
+    ARG_UNUSED(dev);
+    *metadata = slot_metadata;
+    return 0;
+}
+#endif /* CONFIG_ZMK_BEHAVIOR_METADATA */
 
 static int on_tap_dance_binding_pressed(struct zmk_behavior_binding *binding,
                                         struct zmk_behavior_binding_event event) {
@@ -201,8 +262,10 @@ static int on_tap_dance_binding_pressed(struct zmk_behavior_binding *binding,
     if (tap_dance->counter < (int)taps) {
         tap_dance->counter++;
     }
-    if (tap_dance->counter == (int)taps) {
-        /* The last tap needs no waiting: there is nothing longer to become. */
+    if (tap_dance->counter == (int)taps && !has_hold_binding(tap_dance)) {
+        /* The last tap needs no waiting: there is nothing longer to become.
+         * Unless it has a hold action -- then it still has to become either
+         * a tap or a hold, which only the release or the timer can say. */
         press_tap_dance_behavior(tap_dance, event.timestamp);
         return ZMK_EV_EVENT_BUBBLE;
     }
@@ -250,9 +313,7 @@ static const struct behavior_driver_api behavior_runtime_tap_dance_driver_api = 
     .binding_pressed = on_tap_dance_binding_pressed,
     .binding_released = on_tap_dance_binding_released,
 #if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_METADATA)
-    /* The parameter is a slot index, which no metadata kind describes. The
-     * app shows it as a plain number, which is what it is. */
-    .get_parameter_metadata = zmk_behavior_get_empty_param_metadata,
+    .get_parameter_metadata = runtime_tap_dance_parameter_metadata,
 #endif
 };
 

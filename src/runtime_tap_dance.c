@@ -5,6 +5,7 @@
  */
 
 #include <errno.h>
+#include <string.h>
 #include <stdio.h>
 
 #include <zephyr/kernel.h>
@@ -60,6 +61,15 @@ static const struct zmk_custom_setting_value tap_dance_taps_defaults[TAP_COUNT] 
            that holds a behavior id, and applied here it rejected every write                      \
            with -EINVAL ("Invalid request") -- no tap could ever be set. */                        \
         ZMK_CUSTOM_SETTING_NO_CONSTRAINT);                                                         \
+    /* What each tap count does when the key is still held once the dance                          \
+       is decided -- one tap then hold, two taps then hold. Same length as                         \
+       taps; an element holding &none means "no hold action for that count",                       \
+       so the tap binding is held instead, as before. */                                          \
+    ZMK_CUSTOM_SETTING_ARRAY_DEFINE(                                                               \
+        tap_dance_holds_##n, ZMK_RUNTIME_TAP_DANCE_SUBSYSTEM_ID, "tap_dance" #n "/holds",          \
+        ZMK_CUSTOM_SETTING_VALUE_TYPE_BEHAVIOR, TAP_COUNT, 0, tap_dance_taps_defaults,             \
+        ZMK_CUSTOM_SETTING_CONFIDENTIALITY_RPC_PUBLIC, ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE,     \
+        ZMK_CUSTOM_SETTING_PERMISSION_SECURE, ZMK_CUSTOM_SETTING_NO_CONSTRAINT);                   \
     ZMK_CUSTOM_SETTING_DEFINE(                                                                     \
         tap_dance_term_##n, ZMK_RUNTIME_TAP_DANCE_SUBSYSTEM_ID, "tap_dance" #n "/term",            \
         ZMK_CUSTOM_SETTING_VALUE_TYPE_INT32,                                                       \
@@ -83,6 +93,17 @@ LISTIFY(SLOT_COUNT, TAP_DANCE_SLOT_DEFINE, (), _)
  * number is decided at build time by Kconfig and cannot be otherwise.
  */
 ZMK_CUSTOM_SETTING_DEFINE(tap_dance_max_taps, ZMK_RUNTIME_TAP_DANCE_SUBSYSTEM_ID, "max_taps",
+                          ZMK_CUSTOM_SETTING_VALUE_TYPE_INT32,
+                          ZMK_CUSTOM_SETTING_VALUE_INT32(TAP_COUNT),
+                          ZMK_CUSTOM_SETTING_CONFIDENTIALITY_RPC_PUBLIC,
+                          ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE,
+                          ZMK_CUSTOM_SETTING_PERMISSION_SECURE,
+                          ZMK_CUSTOM_SETTING_RANGE_INT32(TAP_COUNT, TAP_COUNT));
+
+/* The holds arrays' capacity -- the same number, published separately because
+ * its presence is how the app learns that this firmware has hold actions at
+ * all: a holds array with nothing in it is invisible to ListSettings. */
+ZMK_CUSTOM_SETTING_DEFINE(tap_dance_max_holds, ZMK_RUNTIME_TAP_DANCE_SUBSYSTEM_ID, "max_holds",
                           ZMK_CUSTOM_SETTING_VALUE_TYPE_INT32,
                           ZMK_CUSTOM_SETTING_VALUE_INT32(TAP_COUNT),
                           ZMK_CUSTOM_SETTING_CONFIDENTIALITY_RPC_PUBLIC,
@@ -120,14 +141,14 @@ uint32_t zmk_runtime_tap_dance_tap_count(uint32_t slot) {
     return MIN(size, (uint32_t)TAP_COUNT);
 }
 
-int zmk_runtime_tap_dance_binding(uint32_t slot, uint32_t index,
-                                  struct zmk_behavior_binding *binding) {
+static int read_binding(uint32_t slot, const char *array, uint32_t index,
+                        struct zmk_behavior_binding *binding) {
     if (binding == NULL || slot >= SLOT_COUNT || index >= (uint32_t)TAP_COUNT) {
         return -EINVAL;
     }
 
     char key[ZMK_RUNTIME_TAP_DANCE_KEY_MAX_LEN];
-    int ret = key_for(slot, "taps", key, sizeof(key));
+    int ret = key_for(slot, array, key, sizeof(key));
     if (ret < 0) {
         return ret;
     }
@@ -149,14 +170,34 @@ int zmk_runtime_tap_dance_binding(uint32_t slot, uint32_t index,
     const char *name = zmk_behavior_find_behavior_name_from_local_id(
         (zmk_behavior_local_id_t)value.behavior_value.behavior_id);
     if (name == NULL) {
-        LOG_WRN("tap dance slot %u tap %u names behavior %u, which this build does not have", slot,
-                index + 1, value.behavior_value.behavior_id);
+        LOG_WRN("tap dance slot %u %s %u names behavior %u, which this build does not have", slot,
+                array, index + 1, value.behavior_value.behavior_id);
         return -ENOENT;
     }
 
     binding->behavior_dev = name;
     binding->param1 = value.behavior_value.param1;
     binding->param2 = value.behavior_value.param2;
+    return 0;
+}
+
+int zmk_runtime_tap_dance_binding(uint32_t slot, uint32_t index,
+                                  struct zmk_behavior_binding *binding) {
+    return read_binding(slot, "taps", index, binding);
+}
+
+int zmk_runtime_tap_dance_hold_binding(uint32_t slot, uint32_t index,
+                                       struct zmk_behavior_binding *binding) {
+    int ret = read_binding(slot, "holds", index, binding);
+    if (ret < 0) {
+        return ret;
+    }
+    /* The app fills a hold it has not been given with &none, which is how
+     * "no hold action" is spelled in a behavior array. Report it as absent
+     * so the caller falls back to holding the tap binding. */
+    if (strcmp(binding->behavior_dev, "none") == 0) {
+        return -ENOENT;
+    }
     return 0;
 }
 

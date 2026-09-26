@@ -34,7 +34,7 @@
 
 #define ZMK_RUNTIME_TAP_DANCE_SUBSYSTEM_ID "keebon__runtime_tap_dance"
 
-/* Longest key this module builds, e.g. "tap_dance15/taps". */
+/* Longest key this module builds, e.g. "tap_dance15/holds". */
 #define ZMK_RUNTIME_TAP_DANCE_KEY_MAX_LEN 24
 
 /**
@@ -59,6 +59,24 @@ uint32_t zmk_runtime_tap_dance_tap_count(uint32_t slot);
  */
 int zmk_runtime_tap_dance_binding(uint32_t slot, uint32_t index,
                                   struct zmk_behavior_binding *binding);
+
+/**
+ * @brief The binding slot @p slot holds when the key is still down after
+ *        @p index + 1 taps, if one is configured.
+ *
+ * A dance decided while the key is still pressed -- one tap then hold, two
+ * taps then hold -- runs this instead of the tap binding, so "tap for
+ * Escape, hold for Control" and "double-tap-hold for something else" can
+ * share a key. Without one, the tap binding is held, as it always was.
+ *
+ * @retval 0 on success.
+ * @retval -EINVAL for an out-of-range slot or index.
+ * @retval -ENOENT when no hold action is configured for that count (the
+ *         element is missing or holds &none), or it names a behavior this
+ *         firmware does not have.
+ */
+int zmk_runtime_tap_dance_hold_binding(uint32_t slot, uint32_t index,
+                                       struct zmk_behavior_binding *binding);
 
 /**
  * @brief How long slot @p slot waits for the next tap, in milliseconds.
