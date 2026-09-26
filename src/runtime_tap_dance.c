@@ -54,7 +54,12 @@ static const struct zmk_custom_setting_value tap_dance_taps_defaults[TAP_COUNT] 
            something nobody asked for. */                                                          \
         0, tap_dance_taps_defaults, ZMK_CUSTOM_SETTING_CONFIDENTIALITY_RPC_PUBLIC,             \
         ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE, ZMK_CUSTOM_SETTING_PERMISSION_SECURE,              \
-        ZMK_CUSTOM_SETTING_BEHAVIOR_ID);                                                           \
+        /* No constraint: a BEHAVIOR value is already checked against the                          \
+           behavior table and the behavior's parameter metadata by the value                       \
+           type itself. ZMK_CUSTOM_SETTING_BEHAVIOR_ID is for an INT32 setting                     \
+           that holds a behavior id, and applied here it rejected every write                      \
+           with -EINVAL ("Invalid request") -- no tap could ever be set. */                        \
+        ZMK_CUSTOM_SETTING_NO_CONSTRAINT);                                                         \
     ZMK_CUSTOM_SETTING_DEFINE(                                                                     \
         tap_dance_term_##n, ZMK_RUNTIME_TAP_DANCE_SUBSYSTEM_ID, "tap_dance" #n "/term",            \
         ZMK_CUSTOM_SETTING_VALUE_TYPE_INT32,                                                       \
